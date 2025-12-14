@@ -1,12 +1,15 @@
-import React, { createContext, useContext, useReducer, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { DEFAULT_DATA } from '../utils/constants';
 import { generateId } from '../utils/calculations';
 
 const STORAGE_KEY = 'budget-dashboard-data';
+const API_BASE = '/api';
 
 // Action types
 const ACTIONS = {
   SET_DATA: 'SET_DATA',
+  SET_PROFILE: 'SET_PROFILE',
+  CLEAR_PROFILE: 'CLEAR_PROFILE',
   SET_ACTIVE_SCENARIO: 'SET_ACTIVE_SCENARIO',
   SET_ACTIVE_TAB: 'SET_ACTIVE_TAB',
   ADD_INCOME: 'ADD_INCOME',
@@ -30,22 +33,23 @@ const ACTIONS = {
 
 // Initial state
 const getInitialState = () => {
+  let theme = 'dark';
+  
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      return {
-        ...parsed,
-        activeScenario: 'current',
-        activeTab: 'dashboard',
-      };
+      theme = parsed.theme || 'dark';
     }
   } catch (e) {
-    console.error('Error loading saved data:', e);
+    console.error('Error loading theme:', e);
   }
   
   return {
-    ...DEFAULT_DATA,
+    profile: null, // { _id, name }
+    scenarios: DEFAULT_DATA.scenarios,
+    version: 1,
+    theme,
     activeScenario: 'current',
     activeTab: 'dashboard',
   };
@@ -58,6 +62,22 @@ const budgetReducer = (state, action) => {
   switch (action.type) {
     case ACTIONS.SET_DATA:
       return { ...state, ...action.payload };
+    
+    case ACTIONS.SET_PROFILE:
+      return { 
+        ...state, 
+        profile: { _id: action.payload._id, name: action.payload.name },
+        scenarios: action.payload.scenarios,
+      };
+    
+    case ACTIONS.CLEAR_PROFILE:
+      return {
+        ...state,
+        profile: null,
+        scenarios: DEFAULT_DATA.scenarios,
+        activeScenario: 'current',
+        activeTab: 'dashboard',
+      };
     
     case ACTIONS.SET_ACTIVE_SCENARIO:
       return { ...state, activeScenario: action.payload };
@@ -252,11 +272,13 @@ const budgetReducer = (state, action) => {
         ...action.payload,
         activeScenario: state.activeScenario,
         activeTab: state.activeTab,
+        profile: state.profile,
       };
     
     case ACTIONS.RESET_DATA:
       return {
-        ...DEFAULT_DATA,
+        ...state,
+        scenarios: DEFAULT_DATA.scenarios,
         activeScenario: 'current',
         activeTab: 'dashboard',
       };
@@ -272,16 +294,50 @@ const BudgetContext = createContext(null);
 // Provider component
 export const BudgetProvider = ({ children }) => {
   const [state, dispatch] = useReducer(budgetReducer, null, getInitialState);
+  const saveTimeoutRef = useRef(null);
+  const lastSavedRef = useRef(JSON.stringify(state.scenarios));
   
-  // Auto-save to localStorage
+  // Auto-save to MongoDB when scenarios change (debounced)
   useEffect(() => {
-    const dataToSave = {
-      scenarios: state.scenarios,
-      version: state.version,
-      theme: state.theme,
+    if (!state.profile?._id) return;
+    
+    const currentData = JSON.stringify(state.scenarios);
+    if (currentData === lastSavedRef.current) return;
+    
+    // Clear any pending save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+    
+    // Debounce save - wait 1 second after last change
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API_BASE}/profiles/${state.profile._id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenarios: state.scenarios }),
+        });
+        
+        if (res.ok) {
+          lastSavedRef.current = currentData;
+          console.log('Auto-saved to cloud');
+        }
+      } catch (err) {
+        console.error('Auto-save failed:', err);
+      }
+    }, 1000);
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-  }, [state.scenarios, state.version, state.theme]);
+  }, [state.scenarios, state.profile]);
+  
+  // Save theme to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ theme: state.theme }));
+  }, [state.theme]);
   
   // Apply theme to document
   useEffect(() => {
@@ -294,6 +350,17 @@ export const BudgetProvider = ({ children }) => {
   
   // Get current scenario data
   const currentScenario = state.scenarios[state.activeScenario];
+  
+  // Profile actions
+  const loadProfile = useCallback((profileData) => {
+    dispatch({ type: ACTIONS.SET_PROFILE, payload: profileData });
+    lastSavedRef.current = JSON.stringify(profileData.scenarios);
+  }, []);
+  
+  const logout = useCallback(() => {
+    dispatch({ type: ACTIONS.CLEAR_PROFILE });
+    lastSavedRef.current = JSON.stringify(DEFAULT_DATA.scenarios);
+  }, []);
   
   // Actions
   const setActiveScenario = useCallback((scenario) => {
@@ -398,12 +465,12 @@ export const BudgetProvider = ({ children }) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `budget-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `budget-${state.profile?.name || 'export'}-${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [state.scenarios, state.version]);
+  }, [state.scenarios, state.version, state.profile]);
   
   const importData = useCallback((file) => {
     return new Promise((resolve, reject) => {
@@ -449,6 +516,11 @@ export const BudgetProvider = ({ children }) => {
     activeScenario: state.activeScenario,
     activeTab: state.activeTab,
     theme: state.theme,
+    profile: state.profile,
+    
+    // Profile actions
+    loadProfile,
+    logout,
     
     // Scenario actions
     setActiveScenario,
@@ -500,4 +572,3 @@ export const useBudget = () => {
   }
   return context;
 };
-

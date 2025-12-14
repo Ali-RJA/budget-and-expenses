@@ -1,27 +1,26 @@
 # Budget Dashboard
 
-A beautiful, responsive personal budget dashboard built with React. Track your income, expenses, debts, and savings goals with auto-saving and import/export functionality.
+A beautiful, responsive personal budget dashboard built with React. Track your income, expenses, debts, and savings goals with cloud sync and profile support.
 
 ## Features
 
+- **Multi-Profile Support**: Create multiple profiles with PIN protection - perfect for sharing with friends/family
+- **Cloud Sync**: All changes auto-saved to MongoDB - access your budget from anywhere
 - **Dual Scenario Tracking**: Compare "Current Reality" vs "Plan Budget"
 - **Income Management**: Track multiple income sources
 - **Expense Tracking**: Categorize expenses as fixed or variable
 - **Debt Management**: Drag-and-drop prioritization with payoff projections
 - **Savings Goals**: Track progress toward emergency fund, vacation, etc.
 - **Beautiful Charts**: Spending breakdown, cash flow, debt payoff timeline
-- **Auto-Save**: All changes saved to browser localStorage
 - **Import/Export**: Save and load your budget as JSON files
 - **Dark/Light Mode**: Toggle between themes
 - **Responsive Design**: Works on desktop, tablet, and mobile
 
 ## Tech Stack
 
-- React 18 + Vite
-- Tailwind CSS
-- Recharts (charts)
-- @dnd-kit (drag and drop)
-- Lucide React (icons)
+- **Frontend**: React 18 + Vite, Tailwind CSS, Recharts, @dnd-kit
+- **Backend**: Express.js, MongoDB
+- **Auth**: PIN-based (bcrypt hashed)
 
 ## Local Development
 
@@ -29,37 +28,46 @@ A beautiful, responsive personal budget dashboard built with React. Track your i
 # Install dependencies
 npm install
 
-# Start dev server
+# Create .env file with your MongoDB URI
+echo "MONGODB_URI=your_mongodb_connection_string" > .env
+
+# Start dev server (runs both client and server)
 npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
 ```
 
-## Deployment
+The app will be available at `http://localhost:5173` (Vite) with API proxy to `http://localhost:3001` (Express).
 
-### Railway
+## Deployment on Railway
 
-This project is configured for one-click Railway deployment:
+1. Push code to GitHub
+2. Connect repo to Railway
+3. Add environment variable:
+   - `MONGODB_URI` = your MongoDB Atlas connection string
+4. Deploy!
 
-1. Connect your GitHub repo to Railway
-2. Railway will auto-detect Vite and build the project
-3. The app will be live at your Railway URL
+Railway will automatically detect the Node.js app and run `npm run build` then `npm start`.
 
-### Environment Variables
+## Environment Variables
 
-No environment variables required - the app runs entirely in the browser.
+| Variable | Description |
+|----------|-------------|
+| `MONGODB_URI` | MongoDB connection string (required) |
+| `PORT` | Server port (auto-set by Railway) |
+
+## Profile System
+
+- Each profile has a name and 4-6 digit PIN
+- PINs are hashed with bcrypt (not stored in plain text)
+- Each profile has its own "Current Reality" and "Plan Budget" scenarios
+- Data auto-saves to MongoDB 1 second after each change
 
 ## Data Storage
 
-- **Browser**: Data is auto-saved to localStorage
+- **Cloud**: All profile data stored in MongoDB Atlas
+- **Local**: Only theme preference stored in localStorage
 - **Export**: Download your budget as a `.json` file for backup
 - **Import**: Load a previously exported `.json` file
 
 ## License
 
 MIT
-

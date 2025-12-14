@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useBudget } from '../context/BudgetContext';
 import TabNavigation from './TabNavigation';
 import Dashboard from './Dashboard';
@@ -10,17 +11,71 @@ import ImportExport from './ImportExport';
 import ProfileSelector from './ProfileSelector';
 import { Moon, Sun, Wallet, LogOut, Cloud, User } from 'lucide-react';
 
+const VALID_TABS = ['dashboard', 'income', 'expenses', 'debts', 'goals'];
+const VALID_SCENARIOS = ['current', 'plan'];
+
 const Layout = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  
   const { 
     activeTab, 
     theme, 
     toggleTheme, 
     activeScenario, 
     setActiveScenario,
+    setActiveTab,
     profile,
     loadProfile,
     logout,
   } = useBudget();
+  
+  // Sync URL with state on mount and URL changes
+  useEffect(() => {
+    if (!profile) return;
+    
+    const path = location.pathname;
+    const parts = path.split('/').filter(Boolean);
+    
+    // Parse URL: /scenario/tab
+    let urlScenario = parts[0];
+    let urlTab = parts[1];
+    
+    // Validate and set scenario
+    if (urlScenario && VALID_SCENARIOS.includes(urlScenario)) {
+      if (urlScenario !== activeScenario) {
+        setActiveScenario(urlScenario);
+      }
+    } else {
+      urlScenario = activeScenario;
+    }
+    
+    // Validate and set tab
+    if (urlTab && VALID_TABS.includes(urlTab)) {
+      if (urlTab !== activeTab) {
+        setActiveTab(urlTab);
+      }
+    } else {
+      urlTab = activeTab;
+    }
+    
+    // Update URL if it doesn't match current state
+    const expectedPath = `/${urlScenario}/${urlTab}`;
+    if (path !== expectedPath) {
+      navigate(expectedPath, { replace: true });
+    }
+  }, [location.pathname, profile]);
+  
+  // Update URL when scenario or tab changes from UI
+  const handleScenarioChange = (scenario) => {
+    setActiveScenario(scenario);
+    navigate(`/${scenario}/${activeTab}`);
+  };
+  
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    navigate(`/${activeScenario}/${tab}`);
+  };
   
   const renderContent = () => {
     switch (activeTab) {
@@ -117,7 +172,7 @@ const Layout = () => {
             {/* Scenario Toggle */}
             <div className="flex items-center gap-2 p-1 rounded-xl bg-dark-700/50 border border-dark-600/50">
               <button
-                onClick={() => setActiveScenario('current')}
+                onClick={() => handleScenarioChange('current')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                   activeScenario === 'current'
                     ? 'bg-gradient-to-r from-accent-teal to-accent-emerald text-white shadow-lg shadow-accent-teal/20'
@@ -127,7 +182,7 @@ const Layout = () => {
                 Current Reality
               </button>
               <button
-                onClick={() => setActiveScenario('plan')}
+                onClick={() => handleScenarioChange('plan')}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
                   activeScenario === 'plan'
                     ? 'bg-gradient-to-r from-accent-teal to-accent-emerald text-white shadow-lg shadow-accent-teal/20'
@@ -175,7 +230,7 @@ const Layout = () => {
       </header>
       
       {/* Tab Navigation */}
-      <TabNavigation />
+      <TabNavigation onTabChange={handleTabChange} />
       
       {/* Main Content */}
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">

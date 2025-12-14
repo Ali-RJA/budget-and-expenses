@@ -151,18 +151,26 @@ const ExpensesSection = () => {
       
       {/* Expense List */}
       <div className="space-y-3">
-        {filteredExpenses.map((item) => (
+          {filteredExpenses.map((item) => (
           <div
             key={item.id}
             className="group flex items-center gap-4 p-4 rounded-xl bg-dark-800/60 border border-dark-600/50 hover:border-dark-500/50 transition-all duration-200 card-hover"
           >
-            {/* Icon */}
-            <div 
-              className="p-2.5 rounded-lg"
-              style={{ backgroundColor: getColor(item.category) + '20', color: getColor(item.category) }}
+            {/* Icon - Clickable for filtering */}
+            <button 
+              onClick={() => setFilterCategory(filterCategory === item.category ? 'all' : item.category)}
+              className={`p-2.5 rounded-lg cursor-pointer transition-all duration-200 hover:scale-110 hover:shadow-lg ${
+                filterCategory === item.category ? 'ring-2 ring-offset-2 ring-offset-dark-800' : ''
+              }`}
+              style={{ 
+                backgroundColor: getColor(item.category) + '20', 
+                color: getColor(item.category),
+                ringColor: filterCategory === item.category ? getColor(item.category) : undefined
+              }}
+              title={filterCategory === item.category ? 'Click to show all' : `Filter by ${EXPENSE_CATEGORIES.find(c => c.id === item.category)?.name || item.category}`}
             >
               {getIcon(item.category)}
-            </div>
+            </button>
             
             {/* Name & Category */}
             <div className="flex-1 min-w-0">

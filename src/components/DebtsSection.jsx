@@ -54,7 +54,7 @@ const iconMap = {
 };
 
 // Sortable Debt Item Component
-const SortableDebtItem = ({ item, onUpdate, onDelete, getIcon }) => {
+const SortableDebtItem = ({ item, onUpdate, onDelete, getIcon, filterType, setFilterType }) => {
   const {
     attributes,
     listeners,
@@ -75,6 +75,9 @@ const SortableDebtItem = ({ item, onUpdate, onDelete, getIcon }) => {
   const totalInterest = calculateTotalInterestPaid(item.balance, item.interestRate, totalPayment);
   const principalPortion = Math.max(0, totalPayment - monthlyInterest);
   
+  const debtType = DEBT_TYPES.find(t => t.id === item.type);
+  const isFiltered = filterType === item.type;
+  
   return (
     <div
       ref={setNodeRef}
@@ -93,10 +96,16 @@ const SortableDebtItem = ({ item, onUpdate, onDelete, getIcon }) => {
           <GripVertical className="w-5 h-5" />
         </button>
         
-        {/* Icon */}
-        <div className="p-2.5 rounded-lg bg-red-500/20 text-red-400">
+        {/* Icon - Clickable for filtering */}
+        <button 
+          onClick={() => setFilterType(isFiltered ? 'all' : item.type)}
+          className={`p-2.5 rounded-lg bg-red-500/20 text-red-400 cursor-pointer transition-all duration-200 hover:scale-110 hover:shadow-lg ${
+            isFiltered ? 'ring-2 ring-offset-2 ring-offset-dark-800 ring-red-400' : ''
+          }`}
+          title={isFiltered ? 'Click to show all' : `Filter by ${debtType?.name || item.type}`}
+        >
           {getIcon(item.type)}
-        </div>
+        </button>
         
         {/* Name & Type */}
         <div className="flex-1 min-w-0">
@@ -239,6 +248,7 @@ const SortableDebtItem = ({ item, onUpdate, onDelete, getIcon }) => {
 const DebtsSection = () => {
   const { currentScenario, addDebt, updateDebt, deleteDebt, reorderDebts } = useBudget();
   const [isAdding, setIsAdding] = useState(false);
+  const [filterType, setFilterType] = useState('all');
   const [newDebt, setNewDebt] = useState({ 
     name: '', 
     type: 'credit_card', 
@@ -249,9 +259,16 @@ const DebtsSection = () => {
   });
   
   const sortedDebts = [...currentScenario.debts].sort((a, b) => a.order - b.order);
+  const filteredDebts = filterType === 'all' 
+    ? sortedDebts 
+    : sortedDebts.filter(d => d.type === filterType);
+  
   const totalBalance = calculateTotalDebtBalance(currentScenario.debts);
   const totalPayments = calculateTotalDebtPayments(currentScenario.debts);
   const monthsToDebtFree = calculateMonthsToDebtFree(currentScenario.debts);
+  
+  // Get unique types that exist in debts
+  const existingTypes = [...new Set(currentScenario.debts.map(d => d.type))];
   
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -335,6 +352,40 @@ const DebtsSection = () => {
         </div>
       </div>
       
+      {/* Type Filter - only show if there are debts */}
+      {existingTypes.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setFilterType('all')}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+              filterType === 'all'
+                ? 'bg-dark-600 text-gray-100 border border-dark-500'
+                : 'text-gray-400 hover:text-gray-200 border border-transparent'
+            }`}
+          >
+            All ({currentScenario.debts.length})
+          </button>
+          {DEBT_TYPES.filter(type => existingTypes.includes(type.id)).map((type) => {
+            const count = currentScenario.debts.filter(d => d.type === type.id).length;
+            const IconComponent = iconMap[type.icon] || CreditCard;
+            return (
+              <button
+                key={type.id}
+                onClick={() => setFilterType(type.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  filterType === type.id
+                    ? 'bg-dark-600 text-gray-100 border border-red-500/50'
+                    : 'text-gray-400 hover:text-gray-200 border border-transparent'
+                }`}
+              >
+                <IconComponent className="w-4 h-4 text-red-400" />
+                {type.name} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+      
       {/* Info Card */}
       {sortedDebts.length > 1 && (
         <div className="p-4 rounded-xl bg-accent-teal/10 border border-accent-teal/30">
@@ -359,12 +410,12 @@ const DebtsSection = () => {
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={sortedDebts.map(d => d.id)}
+            items={filteredDebts.map(d => d.id)}
             strategy={verticalListSortingStrategy}
           >
-            {sortedDebts.map((item, index) => (
+            {filteredDebts.map((item, index) => (
               <div key={item.id} className="relative">
-                {index === 0 && sortedDebts.length > 1 && (
+                {index === 0 && sortedDebts.length > 1 && filterType === 'all' && (
                   <div className="absolute -left-8 top-1/2 -translate-y-1/2 px-2 py-1 rounded bg-accent-teal/20 text-accent-teal text-xs font-medium">
                     #1
                   </div>
@@ -374,6 +425,8 @@ const DebtsSection = () => {
                   onUpdate={handleUpdate}
                   onDelete={deleteDebt}
                   getIcon={getIcon}
+                  filterType={filterType}
+                  setFilterType={setFilterType}
                 />
               </div>
             ))}
@@ -386,6 +439,19 @@ const DebtsSection = () => {
             <CreditCard className="w-12 h-12 text-gray-600 mx-auto mb-3" />
             <p className="text-gray-400">No debts yet</p>
             <p className="text-gray-500 text-sm">Add your debts to track payoff progress</p>
+          </div>
+        )}
+        
+        {/* Filtered Empty State */}
+        {currentScenario.debts.length > 0 && filteredDebts.length === 0 && (
+          <div className="text-center py-8 rounded-xl border border-dark-600/50">
+            <p className="text-gray-400">No debts match this filter</p>
+            <button 
+              onClick={() => setFilterType('all')}
+              className="text-accent-teal text-sm mt-2 hover:underline"
+            >
+              Show all debts
+            </button>
           </div>
         )}
         
@@ -513,4 +579,3 @@ const DebtsSection = () => {
 };
 
 export default DebtsSection;
-

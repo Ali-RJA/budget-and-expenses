@@ -16,8 +16,16 @@ const tabs = [
   { id: 'goals', name: 'Goals', icon: Target },
 ];
 
-const TabNavigation = () => {
+const TabNavigation = ({ onTabChange }) => {
   const { activeTab, setActiveTab } = useBudget();
+  
+  const handleTabClick = (tabId) => {
+    if (onTabChange) {
+      onTabChange(tabId);
+    } else {
+      setActiveTab(tabId);
+    }
+  };
   
   return (
     <div className="relative z-10 border-b border-dark-600/30">
@@ -30,7 +38,7 @@ const TabNavigation = () => {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabClick(tab.id)}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition-all duration-200 ${
                   isActive
                     ? 'bg-dark-700/80 text-accent-teal border border-accent-teal/30 shadow-lg shadow-accent-teal/5'
@@ -49,4 +57,3 @@ const TabNavigation = () => {
 };
 
 export default TabNavigation;
-

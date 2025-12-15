@@ -75,19 +75,28 @@ export const calculateTotalInterestPaid = (balance, annualRate, monthlyPayment) 
   return Math.max(0, totalPaid - balance);
 };
 
-// Calculate debt payoff schedule (for chart) - WYSIWYG: What You See Is What You Get
-// Each debt uses ONLY its own payments - no cascading, no pooling, no implicit behavior
-export const calculateDebtPayoffSchedule = (debtItems, maxMonths = 360) => {
+// Calculate debt payoff schedule (for chart)
+// Mode: 'independent' = WYSIWYG (each debt uses only its own payments)
+// Mode: 'cascade' = Snowball/Avalanche (freed payments cascade to priority debt)
+export const calculateDebtPayoffSchedule = (debtItems, maxMonths = 360, mode = 'independent') => {
   if (!debtItems.length) return [];
   
   // Filter out debts with zero balance
   const activeDebts = debtItems.filter(d => (d.balance || 0) > 0);
   if (!activeDebts.length) return [{ month: 0, totalBalance: 0, interestPaid: 0, principalPaid: 0 }];
   
+  // For cascade mode, sort by priority order
+  const sortedDebts = mode === 'cascade' 
+    ? [...activeDebts].sort((a, b) => (a.order || 0) - (b.order || 0))
+    : activeDebts;
+  
   const schedule = [];
   
-  // Create working copy of balances - each debt tracked independently
-  let balances = activeDebts.map(d => d.balance || 0);
+  // Create working copy of balances
+  let balances = sortedDebts.map(d => d.balance || 0);
+  
+  // Track cascade extras (payments freed up from paid-off debts)
+  let cascadeExtra = 0;
   
   // Month 0: Record starting state
   schedule.push({
@@ -102,31 +111,98 @@ export const calculateDebtPayoffSchedule = (debtItems, maxMonths = 360) => {
     let monthlyInterest = 0;
     let monthlyPrincipal = 0;
     
-    // Process each debt INDEPENDENTLY - no interaction between debts
-    for (let i = 0; i < activeDebts.length; i++) {
-      if (balances[i] <= 0) continue;
-      
-      const debt = activeDebts[i];
-      const monthlyRate = (debt.interestRate || 0) / 100 / 12;
-      
-      // Step 1: Add interest
-      const interest = balances[i] * monthlyRate;
-      balances[i] += interest;
-      monthlyInterest += interest;
-      
-      // Step 2: Calculate this debt's total payment (min + extra)
-      const totalPayment = (debt.minimumPayment || 0) + (debt.extraPayment || 0);
-      
-      // Step 3: Apply payment - cap at remaining balance (no overpaying)
-      const actualPayment = Math.min(totalPayment, balances[i]);
-      
-      if (actualPayment > 0) {
-        balances[i] -= actualPayment;
-        monthlyPrincipal += actualPayment;
+    if (mode === 'independent') {
+      // INDEPENDENT MODE: Each debt uses only its own payments
+      for (let i = 0; i < sortedDebts.length; i++) {
+        if (balances[i] <= 0) continue;
         
-        // If paid off, set to exactly 0
-        if (balances[i] <= 0.01) {
-          balances[i] = 0;
+        const debt = sortedDebts[i];
+        const monthlyRate = (debt.interestRate || 0) / 100 / 12;
+        
+        // Add interest
+        const interest = balances[i] * monthlyRate;
+        balances[i] += interest;
+        monthlyInterest += interest;
+        
+        // Calculate this debt's total payment (min + extra)
+        const totalPayment = (debt.minimumPayment || 0) + (debt.extraPayment || 0);
+        
+        // Apply payment - cap at remaining balance
+        const actualPayment = Math.min(totalPayment, balances[i]);
+        
+        if (actualPayment > 0) {
+          balances[i] -= actualPayment;
+          monthlyPrincipal += actualPayment;
+          
+          if (balances[i] <= 0.01) {
+            balances[i] = 0;
+          }
+        }
+      }
+    } else {
+      // CASCADE MODE: Freed payments roll to priority debt
+      
+      // Step 1: Add interest to all debts
+      for (let i = 0; i < sortedDebts.length; i++) {
+        if (balances[i] <= 0) continue;
+        
+        const debt = sortedDebts[i];
+        const monthlyRate = (debt.interestRate || 0) / 100 / 12;
+        const interest = balances[i] * monthlyRate;
+        
+        balances[i] += interest;
+        monthlyInterest += interest;
+      }
+      
+      // Step 2: Apply minimum payments to all debts
+      for (let i = 0; i < sortedDebts.length; i++) {
+        if (balances[i] <= 0) continue;
+        
+        const debt = sortedDebts[i];
+        const minPayment = Math.min(debt.minimumPayment || 0, balances[i]);
+        
+        if (minPayment > 0) {
+          balances[i] -= minPayment;
+          monthlyPrincipal += minPayment;
+          
+          if (balances[i] <= 0.01) {
+            // Debt paid off by minimum - add its payment to cascade
+            cascadeExtra += (debt.minimumPayment || 0) + (debt.extraPayment || 0);
+            balances[i] = 0;
+          }
+        }
+      }
+      
+      // Step 3: Apply extra payments + cascade to priority debt
+      const priorityIndex = balances.findIndex(b => b > 0);
+      if (priorityIndex !== -1) {
+        const priorityDebt = sortedDebts[priorityIndex];
+        
+        // Total extra = this debt's extra + cascade + all other debts' extra payments
+        let totalExtra = (priorityDebt.extraPayment || 0) + cascadeExtra;
+        
+        // Add extra payments from other (non-priority) debts
+        for (let i = 0; i < sortedDebts.length; i++) {
+          if (i !== priorityIndex && balances[i] > 0) {
+            // Only add extra from debts that aren't paid off yet
+          } else if (i !== priorityIndex && balances[i] <= 0) {
+            // This debt's extra is already in cascadeExtra
+          }
+          if (i !== priorityIndex && balances[i] > 0) {
+            totalExtra += sortedDebts[i].extraPayment || 0;
+          }
+        }
+        
+        const extraPayment = Math.min(totalExtra, balances[priorityIndex]);
+        
+        if (extraPayment > 0) {
+          balances[priorityIndex] -= extraPayment;
+          monthlyPrincipal += extraPayment;
+          
+          if (balances[priorityIndex] <= 0.01) {
+            cascadeExtra += (priorityDebt.minimumPayment || 0) + (priorityDebt.extraPayment || 0);
+            balances[priorityIndex] = 0;
+          }
         }
       }
     }

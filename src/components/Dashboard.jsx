@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useBudget } from '../context/BudgetContext';
 import { EXPENSE_CATEGORIES, CHART_COLORS } from '../utils/constants';
 import {
@@ -52,6 +52,8 @@ import {
   BarChart3,
   Percent,
   CircleDollarSign,
+  Repeat,
+  Pause,
 } from 'lucide-react';
 
 // Custom Tooltip for charts
@@ -160,6 +162,7 @@ const InsightCard = ({ title, value, description, icon: Icon, color = 'teal', ac
 
 const Dashboard = () => {
   const { currentScenario, activeScenario, state, setActiveTab } = useBudget();
+  const [debtPayoffMode, setDebtPayoffMode] = useState('independent'); // 'independent' or 'cascade'
   
   // Calculate all metrics
   const totalIncome = calculateTotalIncome(currentScenario.income);
@@ -206,8 +209,22 @@ const Dashboard = () => {
     { name: 'Savings', amount: totalGoalContributions, fill: '#10b981' },
   ];
   
-  // Debt payoff projection - monthly data
-  const debtPayoffSchedule = calculateDebtPayoffSchedule(currentScenario.debts, 360);
+  // Debt payoff projection - calculate both modes for comparison
+  const debtPayoffScheduleIndependent = calculateDebtPayoffSchedule(currentScenario.debts, 360, 'independent');
+  const debtPayoffScheduleCascade = calculateDebtPayoffSchedule(currentScenario.debts, 360, 'cascade');
+  
+  // Use the selected mode for display
+  const debtPayoffSchedule = debtPayoffMode === 'cascade' ? debtPayoffScheduleCascade : debtPayoffScheduleIndependent;
+  
+  // Get months to debt-free for both modes
+  const monthsIndependent = debtPayoffScheduleIndependent.length > 0 ? debtPayoffScheduleIndependent.length - 1 : 0;
+  const monthsCascade = debtPayoffScheduleCascade.length > 0 ? debtPayoffScheduleCascade.length - 1 : 0;
+  const monthsSaved = monthsIndependent - monthsCascade;
+  
+  // Calculate total interest for both modes
+  const interestIndependent = debtPayoffScheduleIndependent.reduce((sum, entry) => sum + (entry.interestPaid || 0), 0);
+  const interestCascade = debtPayoffScheduleCascade.reduce((sum, entry) => sum + (entry.interestPaid || 0), 0);
+  const interestSaved = interestIndependent - interestCascade;
   
   // Determine optimal display: show monthly for shorter timeframes, sample for longer
   const totalMonths = debtPayoffSchedule.length - 1;
@@ -241,7 +258,7 @@ const Dashboard = () => {
       }));
   }
   
-  // Calculate total interest that will be paid
+  // Calculate total interest that will be paid (for current mode)
   const totalInterestToPay = debtPayoffSchedule.reduce((sum, entry) => sum + (entry.interestPaid || 0), 0);
   
   // Goal progress data
@@ -492,14 +509,9 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Debt Payoff Projection */}
         <div className="p-6 rounded-xl bg-dark-800/60 border border-dark-600/50">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-2">
             <div>
               <h3 className="text-lg font-display font-semibold text-gray-100">Debt Payoff Projection</h3>
-              {totalDebtBalance > 0 && totalInterestToPay > 0 && (
-                <p className="text-sm text-gray-400 mt-1">
-                  Total interest to pay: <span className="text-yellow-400 font-mono">{formatCurrency(totalInterestToPay)}</span>
-                </p>
-              )}
             </div>
             <button 
               onClick={() => setActiveTab('debts')}
@@ -508,6 +520,64 @@ const Dashboard = () => {
               Manage Debts
             </button>
           </div>
+          
+          {/* Mode Toggle */}
+          {totalDebtBalance > 0 && (
+            <div className="flex items-center gap-3 mb-3">
+              <div className="flex rounded-lg bg-dark-700/50 p-0.5">
+                <button
+                  onClick={() => setDebtPayoffMode('independent')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    debtPayoffMode === 'independent'
+                      ? 'bg-dark-600 text-white shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                  title="Each debt uses only its own payments"
+                >
+                  <Pause className="w-3 h-3" />
+                  Independent
+                </button>
+                <button
+                  onClick={() => setDebtPayoffMode('cascade')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+                    debtPayoffMode === 'cascade'
+                      ? 'bg-accent-teal text-white shadow-sm'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                  title="Freed payments cascade to next debt (snowball/avalanche)"
+                >
+                  <Repeat className="w-3 h-3" />
+                  Cascade
+                </button>
+              </div>
+              
+              {/* Savings comparison */}
+              {monthsSaved > 0 && debtPayoffMode === 'cascade' && (
+                <span className="text-xs text-green-400">
+                  {monthsSaved} mo faster • Save {formatCurrency(interestSaved)} interest
+                </span>
+              )}
+              {monthsSaved > 0 && debtPayoffMode === 'independent' && (
+                <span className="text-xs text-gray-400">
+                  Cascade saves {monthsSaved} mo & {formatCurrency(interestSaved)}
+                </span>
+              )}
+            </div>
+          )}
+          
+          {/* Stats row */}
+          {totalDebtBalance > 0 && (
+            <div className="flex gap-4 text-sm mb-3">
+              <div>
+                <span className="text-gray-400">Debt-free in: </span>
+                <span className="text-white font-mono font-medium">{formatMonths(totalMonths)}</span>
+              </div>
+              <div>
+                <span className="text-gray-400">Total interest: </span>
+                <span className="text-yellow-400 font-mono">{formatCurrency(totalInterestToPay)}</span>
+              </div>
+            </div>
+          )}
           {debtChartData.length > 1 ? (
             <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">

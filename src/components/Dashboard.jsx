@@ -10,11 +10,13 @@ import {
   calculateNetSurplus,
   calculateSavingsRate,
   calculateExpensesByCategory,
+  calculateExpensesByType,
   calculateDebtPayoffSchedule,
   calculateMonthsToDebtFree,
   calculateGoalProgress,
   calculateMonthsToGoal,
   calculateEmergencyFundTarget,
+  calculateMonthlyInterest,
   formatCurrency,
   formatPercentage,
   formatMonths,
@@ -48,6 +50,8 @@ import {
   Calendar,
   DollarSign,
   BarChart3,
+  Percent,
+  CircleDollarSign,
 } from 'lucide-react';
 
 // Custom Tooltip for charts
@@ -247,6 +251,79 @@ const Dashboard = () => {
     current: goal.currentAmount,
     target: goal.targetAmount,
   }));
+  
+  // === NEW: Debt Interest vs Principal Breakdown ===
+  const debtBreakdownData = currentScenario.debts
+    .filter(debt => debt.balance > 0 && ((debt.minimumPayment || 0) + (debt.extraPayment || 0)) > 0)
+    .map(debt => {
+      const monthlyInterest = calculateMonthlyInterest(debt.balance, debt.interestRate);
+      const totalPayment = (debt.minimumPayment || 0) + (debt.extraPayment || 0);
+      // Cap interest at the payment amount (can't pay more interest than you're paying)
+      const interestPortion = Math.min(monthlyInterest, totalPayment);
+      const principalPortion = Math.max(0, totalPayment - interestPortion);
+      
+      return {
+        name: debt.name.length > 15 ? debt.name.substring(0, 12) + '...' : debt.name,
+        fullName: debt.name,
+        interest: Math.round(interestPortion * 100) / 100,
+        principal: Math.round(principalPortion * 100) / 100,
+        total: Math.round(totalPayment * 100) / 100,
+      };
+    });
+  
+  const totalMonthlyInterest = debtBreakdownData.reduce((sum, d) => sum + d.interest, 0);
+  const totalMonthlyPrincipal = debtBreakdownData.reduce((sum, d) => sum + d.principal, 0);
+  
+  // === NEW: 50/30/20 Budget Rule ===
+  // Categorize expenses
+  const { fixed: fixedExpenses, variable: variableExpenses } = calculateExpensesByType(currentScenario.expenses);
+  
+  // Calculate debt minimums (required payments = needs) vs extra (optional = savings)
+  const debtMinimums = currentScenario.debts.reduce((sum, d) => sum + (d.minimumPayment || 0), 0);
+  const debtExtras = currentScenario.debts.reduce((sum, d) => sum + (d.extraPayment || 0), 0);
+  
+  // 50/30/20 categories:
+  // - Needs (50%): Fixed expenses + debt minimum payments
+  // - Wants (30%): Variable expenses
+  // - Savings (20%): Goal contributions + extra debt payments
+  const needsAmount = fixedExpenses + debtMinimums;
+  const wantsAmount = variableExpenses;
+  const savingsAmount = totalGoalContributions + debtExtras;
+  
+  // Calculate percentages based on income
+  const needsPercent = totalIncome > 0 ? (needsAmount / totalIncome) * 100 : 0;
+  const wantsPercent = totalIncome > 0 ? (wantsAmount / totalIncome) * 100 : 0;
+  const savingsPercent = totalIncome > 0 ? (savingsAmount / totalIncome) * 100 : 0;
+  
+  const budgetRuleData = [
+    { 
+      name: 'Needs', 
+      target: 50, 
+      actual: Math.round(needsPercent * 10) / 10,
+      amount: needsAmount,
+      description: 'Fixed expenses + debt minimums',
+      color: '#3b82f6',
+      status: needsPercent <= 50 ? 'good' : needsPercent <= 60 ? 'warning' : 'over'
+    },
+    { 
+      name: 'Wants', 
+      target: 30, 
+      actual: Math.round(wantsPercent * 10) / 10,
+      amount: wantsAmount,
+      description: 'Variable/discretionary spending',
+      color: '#f59e0b',
+      status: wantsPercent <= 30 ? 'good' : wantsPercent <= 40 ? 'warning' : 'over'
+    },
+    { 
+      name: 'Savings', 
+      target: 20, 
+      actual: Math.round(savingsPercent * 10) / 10,
+      amount: savingsAmount,
+      description: 'Goals + extra debt payments',
+      color: '#10b981',
+      status: savingsPercent >= 20 ? 'good' : savingsPercent >= 10 ? 'warning' : 'under'
+    },
+  ];
   
   return (
     <div className="space-y-8">
@@ -538,6 +615,202 @@ const Dashboard = () => {
           </div>
         </div>
       )}
+      
+      {/* Charts Row 3: New Infographics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Debt Interest vs Principal Breakdown */}
+        <div className="p-6 rounded-xl bg-dark-800/60 border border-dark-600/50">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-yellow-500/20">
+                <CircleDollarSign className="w-5 h-5 text-yellow-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-display font-semibold text-gray-100">Where Your Debt Payments Go</h3>
+                <p className="text-sm text-gray-400">Interest vs. actually paying down debt</p>
+              </div>
+            </div>
+          </div>
+          {debtBreakdownData.length > 0 ? (
+            <div className="space-y-4">
+              {/* Summary Stats */}
+              <div className="flex gap-4 p-3 rounded-lg bg-dark-700/50">
+                <div className="flex-1 text-center">
+                  <p className="text-xs text-gray-400 mb-1">Monthly Interest</p>
+                  <p className="text-lg font-mono font-bold text-yellow-400">{formatCurrency(totalMonthlyInterest)}</p>
+                  <p className="text-xs text-gray-500">
+                    {totalDebtPayments > 0 ? `${((totalMonthlyInterest / totalDebtPayments) * 100).toFixed(0)}% of payments` : '0%'}
+                  </p>
+                </div>
+                <div className="w-px bg-dark-600" />
+                <div className="flex-1 text-center">
+                  <p className="text-xs text-gray-400 mb-1">Paying Down Debt</p>
+                  <p className="text-lg font-mono font-bold text-green-400">{formatCurrency(totalMonthlyPrincipal)}</p>
+                  <p className="text-xs text-gray-500">
+                    {totalDebtPayments > 0 ? `${((totalMonthlyPrincipal / totalDebtPayments) * 100).toFixed(0)}% of payments` : '0%'}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Bar Chart */}
+              <div className="h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={debtBreakdownData} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2a2a38" horizontal={false} />
+                    <XAxis type="number" tickFormatter={(v) => `$${v}`} stroke="#64748b" tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" width={70} stroke="#64748b" tick={{ fontSize: 10 }} />
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-dark-700 border border-dark-500 rounded-lg p-3 shadow-xl">
+                              <p className="text-white font-medium mb-2">{data.fullName}</p>
+                              <div className="space-y-1">
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-yellow-400 text-sm">Interest:</span>
+                                  <span className="text-white font-mono text-sm">{formatCurrency(data.interest)}</span>
+                                </div>
+                                <div className="flex justify-between gap-4">
+                                  <span className="text-green-400 text-sm">Principal:</span>
+                                  <span className="text-white font-mono text-sm">{formatCurrency(data.principal)}</span>
+                                </div>
+                                <div className="flex justify-between gap-4 pt-1 border-t border-dark-500">
+                                  <span className="text-gray-400 text-sm">Total:</span>
+                                  <span className="text-white font-mono text-sm">{formatCurrency(data.total)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="interest" name="Interest" stackId="a" fill="#eab308" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="principal" name="Principal" stackId="a" fill="#22c55e" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              
+              {/* Legend */}
+              <div className="flex justify-center gap-6">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-yellow-500" />
+                  <span className="text-sm text-gray-400">Interest (lost $)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-green-500" />
+                  <span className="text-sm text-gray-400">Principal (paying debt)</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-48 flex items-center justify-center text-gray-500">
+              {totalDebtBalance === 0 ? 'No debt to display' : 'Add payment amounts to see breakdown'}
+            </div>
+          )}
+        </div>
+        
+        {/* 50/30/20 Budget Rule */}
+        <div className="p-6 rounded-xl bg-dark-800/60 border border-dark-600/50">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-500/20">
+                <Percent className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-display font-semibold text-gray-100">50/30/20 Budget Rule</h3>
+                <p className="text-sm text-gray-400">How your spending compares to the recommended rule</p>
+              </div>
+            </div>
+          </div>
+          {totalIncome > 0 ? (
+            <div className="space-y-5">
+              {budgetRuleData.map((category, index) => {
+                const isGood = category.status === 'good';
+                const isWarning = category.status === 'warning';
+                const barWidth = Math.min(100, Math.max(0, category.actual));
+                const targetPosition = Math.min(100, category.target);
+                
+                return (
+                  <div key={index} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-200">{category.name}</span>
+                        <span className="text-xs text-gray-500">({category.description})</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-mono font-bold ${
+                          isGood ? 'text-green-400' : isWarning ? 'text-yellow-400' : 'text-red-400'
+                        }`}>
+                          {category.actual}%
+                        </span>
+                        <span className="text-xs text-gray-500">/ {category.target}%</span>
+                      </div>
+                    </div>
+                    
+                    {/* Progress Bar */}
+                    <div className="relative h-4 bg-dark-700 rounded-full overflow-hidden">
+                      {/* Actual bar */}
+                      <div
+                        className="absolute h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${barWidth}%`,
+                          backgroundColor: isGood ? '#22c55e' : isWarning ? '#eab308' : '#ef4444',
+                        }}
+                      />
+                      {/* Target marker */}
+                      <div
+                        className="absolute top-0 h-full w-0.5 bg-white/50"
+                        style={{ left: `${targetPosition}%` }}
+                      />
+                      {/* Target label */}
+                      <div
+                        className="absolute -top-5 text-xs text-gray-400 transform -translate-x-1/2"
+                        style={{ left: `${targetPosition}%` }}
+                      >
+                        {category.target}%
+                      </div>
+                    </div>
+                    
+                    {/* Amount */}
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-500">{formatCurrency(category.amount)}/month</span>
+                      <span className={`${
+                        isGood ? 'text-green-400' : isWarning ? 'text-yellow-400' : 'text-red-400'
+                      }`}>
+                        {category.name === 'Savings' 
+                          ? (isGood ? '✓ On track' : isWarning ? '↑ Could save more' : '⚠ Below target')
+                          : (isGood ? '✓ Within budget' : isWarning ? '↑ Slightly over' : '⚠ Over budget')
+                        }
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {/* Summary */}
+              <div className="pt-3 mt-3 border-t border-dark-600">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-400">Unallocated</span>
+                  <span className={`font-mono font-medium ${
+                    (100 - needsPercent - wantsPercent - savingsPercent) >= 0 ? 'text-gray-300' : 'text-red-400'
+                  }`}>
+                    {(100 - needsPercent - wantsPercent - savingsPercent).toFixed(1)}%
+                    <span className="text-gray-500 ml-2">
+                      ({formatCurrency(totalIncome - needsAmount - wantsAmount - savingsAmount)})
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="h-48 flex items-center justify-center text-gray-500">
+              Add income to see budget breakdown
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

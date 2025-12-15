@@ -331,7 +331,7 @@ const DebtsSection = () => {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-display font-bold text-gray-100">Debts</h2>
-          <p className="text-gray-400 text-sm mt-1">Drag to reorder payment priority (debt avalanche/snowball)</p>
+          <p className="text-gray-400 text-sm mt-1">Track your debts and payoff progress</p>
         </div>
         <div className="flex items-center gap-6">
           <div className="text-right">
@@ -386,21 +386,6 @@ const DebtsSection = () => {
         </div>
       )}
       
-      {/* Info Card */}
-      {sortedDebts.length > 1 && (
-        <div className="p-4 rounded-xl bg-accent-teal/10 border border-accent-teal/30">
-          <div className="flex items-start gap-3">
-            <GripVertical className="w-5 h-5 text-accent-teal mt-0.5" />
-            <div>
-              <p className="text-accent-teal font-medium">Priority Order</p>
-              <p className="text-gray-400 text-sm mt-1">
-                Drag debts to reorder. The top debt receives extra payments first (after all minimum payments are made). 
-                When it's paid off, extra payments cascade to the next debt.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
       
       {/* Debt List */}
       <div className="space-y-3">
@@ -415,11 +400,6 @@ const DebtsSection = () => {
           >
             {filteredDebts.map((item, index) => (
               <div key={item.id} className="relative">
-                {index === 0 && sortedDebts.length > 1 && filterType === 'all' && (
-                  <div className="absolute -left-8 top-1/2 -translate-y-1/2 px-2 py-1 rounded bg-accent-teal/20 text-accent-teal text-xs font-medium">
-                    #1
-                  </div>
-                )}
                 <SortableDebtItem
                   item={item}
                   onUpdate={handleUpdate}

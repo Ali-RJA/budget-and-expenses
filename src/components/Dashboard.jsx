@@ -202,12 +202,43 @@ const Dashboard = () => {
     { name: 'Savings', amount: totalGoalContributions, fill: '#10b981' },
   ];
   
-  // Debt payoff projection
-  const debtPayoffSchedule = calculateDebtPayoffSchedule(currentScenario.debts, 60);
-  const debtChartData = debtPayoffSchedule.filter((_, i) => i % 3 === 0).map(entry => ({
-    month: `Mo ${entry.month}`,
-    balance: entry.totalBalance,
-  }));
+  // Debt payoff projection - monthly data
+  const debtPayoffSchedule = calculateDebtPayoffSchedule(currentScenario.debts, 360);
+  
+  // Determine optimal display: show monthly for shorter timeframes, sample for longer
+  const totalMonths = debtPayoffSchedule.length - 1;
+  let debtChartData = [];
+  
+  if (totalMonths <= 24) {
+    // Show every month for 2 years or less
+    debtChartData = debtPayoffSchedule.map(entry => ({
+      month: entry.month === 0 ? 'Now' : `${entry.month}`,
+      balance: entry.totalBalance,
+      interest: entry.interestPaid || 0,
+      principal: entry.principalPaid || 0,
+    }));
+  } else if (totalMonths <= 60) {
+    // Show every month for up to 5 years
+    debtChartData = debtPayoffSchedule.map(entry => ({
+      month: entry.month === 0 ? 'Now' : entry.month % 12 === 0 ? `Yr ${entry.month / 12}` : `${entry.month}`,
+      balance: entry.totalBalance,
+      interest: entry.interestPaid || 0,
+      principal: entry.principalPaid || 0,
+    }));
+  } else {
+    // For longer timeframes, show key months (every 3 months) to keep chart readable
+    debtChartData = debtPayoffSchedule
+      .filter((entry, i) => i === 0 || i === debtPayoffSchedule.length - 1 || entry.month % 3 === 0)
+      .map(entry => ({
+        month: entry.month === 0 ? 'Now' : entry.month % 12 === 0 ? `Yr ${entry.month / 12}` : `${entry.month}`,
+        balance: entry.totalBalance,
+        interest: entry.interestPaid || 0,
+        principal: entry.principalPaid || 0,
+      }));
+  }
+  
+  // Calculate total interest that will be paid
+  const totalInterestToPay = debtPayoffSchedule.reduce((sum, entry) => sum + (entry.interestPaid || 0), 0);
   
   // Goal progress data
   const goalProgressData = currentScenario.goals.map(goal => ({
@@ -384,8 +415,15 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Debt Payoff Projection */}
         <div className="p-6 rounded-xl bg-dark-800/60 border border-dark-600/50">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-display font-semibold text-gray-100">Debt Payoff Projection</h3>
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-display font-semibold text-gray-100">Debt Payoff Projection</h3>
+              {totalDebtBalance > 0 && totalInterestToPay > 0 && (
+                <p className="text-sm text-gray-400 mt-1">
+                  Total interest to pay: <span className="text-yellow-400 font-mono">{formatCurrency(totalInterestToPay)}</span>
+                </p>
+              )}
+            </div>
             <button 
               onClick={() => setActiveTab('debts')}
               className="text-sm text-accent-teal hover:underline"
@@ -394,18 +432,28 @@ const Dashboard = () => {
             </button>
           </div>
           {debtChartData.length > 1 ? (
-            <div className="h-48">
+            <div className="h-52">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={debtChartData}>
                   <defs>
                     <linearGradient id="debtGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#f43f5e" stopOpacity={0} />
+                      <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#2a2a38" />
-                  <XAxis dataKey="month" stroke="#64748b" />
-                  <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} stroke="#64748b" />
+                  <XAxis 
+                    dataKey="month" 
+                    stroke="#64748b" 
+                    tick={{ fontSize: 11 }}
+                    interval={totalMonths <= 24 ? 2 : 'preserveStartEnd'}
+                  />
+                  <YAxis 
+                    tickFormatter={(v) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`} 
+                    stroke="#64748b" 
+                    tick={{ fontSize: 11 }}
+                    width={50}
+                  />
                   <Tooltip content={<CustomTooltip />} />
                   <Area
                     type="monotone"
@@ -419,7 +467,7 @@ const Dashboard = () => {
               </ResponsiveContainer>
             </div>
           ) : (
-            <div className="h-48 flex items-center justify-center text-gray-500">
+            <div className="h-52 flex items-center justify-center text-gray-500">
               {totalDebtBalance === 0 ? 'Debt free! 🎉' : 'Add debt details to see projection'}
             </div>
           )}

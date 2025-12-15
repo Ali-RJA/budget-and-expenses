@@ -75,56 +75,111 @@ export const calculateTotalInterestPaid = (balance, annualRate, monthlyPayment) 
   return Math.max(0, totalPaid - balance);
 };
 
-// Calculate debt payoff schedule (for chart)
-export const calculateDebtPayoffSchedule = (debtItems, maxMonths = 120) => {
+// Calculate debt payoff schedule (for chart) - Accurate monthly simulation
+// Uses debt avalanche/snowball based on priority order
+export const calculateDebtPayoffSchedule = (debtItems, maxMonths = 360) => {
   if (!debtItems.length) return [];
   
-  // Sort by order
-  const sortedDebts = [...debtItems].sort((a, b) => a.order - b.order);
+  // Filter out debts with zero balance
+  const activeDebts = debtItems.filter(d => (d.balance || 0) > 0);
+  if (!activeDebts.length) return [{ month: 0, totalBalance: 0, interestPaid: 0, principalPaid: 0 }];
+  
+  // Sort by priority order (lower order = higher priority)
+  const sortedDebts = [...activeDebts].sort((a, b) => (a.order || 0) - (b.order || 0));
   
   const schedule = [];
-  let currentBalances = sortedDebts.map(d => d.balance || 0);
-  let totalExtraPayment = 0;
   
-  for (let month = 0; month <= maxMonths; month++) {
-    const totalBalance = currentBalances.reduce((sum, b) => sum + b, 0);
-    schedule.push({
-      month,
-      totalBalance,
-      ...sortedDebts.reduce((acc, debt, i) => {
-        acc[debt.id] = currentBalances[i];
-        return acc;
-      }, {}),
-    });
+  // Create working copy of balances and track extra payments freed up by paid-off debts
+  let balances = sortedDebts.map(d => d.balance || 0);
+  let snowballExtra = 0; // Extra money from paid-off debts' minimum payments
+  
+  // Month 0: Record starting state
+  schedule.push({
+    month: 0,
+    totalBalance: balances.reduce((sum, b) => sum + b, 0),
+    interestPaid: 0,
+    principalPaid: 0,
+    balances: [...balances],
+  });
+  
+  for (let month = 1; month <= maxMonths; month++) {
+    let monthlyInterest = 0;
+    let monthlyPrincipal = 0;
     
-    if (totalBalance <= 0) break;
-    
-    // Apply payments for next month
+    // Step 1: Calculate and add interest to all debts
     for (let i = 0; i < sortedDebts.length; i++) {
-      if (currentBalances[i] <= 0) continue;
+      if (balances[i] <= 0) continue;
       
       const debt = sortedDebts[i];
       const monthlyRate = (debt.interestRate || 0) / 100 / 12;
+      const interest = balances[i] * monthlyRate;
       
-      // Add interest
-      currentBalances[i] *= (1 + monthlyRate);
+      balances[i] += interest;
+      monthlyInterest += interest;
+    }
+    
+    // Step 2: Apply minimum payments to all debts
+    for (let i = 0; i < sortedDebts.length; i++) {
+      if (balances[i] <= 0) continue;
       
-      // Apply minimum payment
-      let payment = debt.minimumPayment || 0;
+      const debt = sortedDebts[i];
+      const minPayment = Math.min(debt.minimumPayment || 0, balances[i]);
       
-      // Add extra payment (including freed up payments from paid debts)
-      if (i === sortedDebts.findIndex((_, idx) => currentBalances[idx] > 0)) {
-        payment += (debt.extraPayment || 0) + totalExtraPayment;
-      }
-      
-      const oldBalance = currentBalances[i];
-      currentBalances[i] = Math.max(0, currentBalances[i] - payment);
-      
-      // If debt is paid off, add its payment to extra pool
-      if (oldBalance > 0 && currentBalances[i] <= 0) {
-        totalExtraPayment += debt.minimumPayment || 0;
+      if (minPayment > 0) {
+        balances[i] -= minPayment;
+        monthlyPrincipal += minPayment;
+        
+        // Check if paid off
+        if (balances[i] <= 0.01) {
+          // Add this debt's minimum payment to snowball for future months
+          snowballExtra += debt.minimumPayment || 0;
+          balances[i] = 0;
+        }
       }
     }
+    
+    // Step 3: Apply extra payments to the highest priority debt with remaining balance
+    // (This includes user-defined extra payments + snowball from paid-off debts)
+    const priorityIndex = balances.findIndex(b => b > 0);
+    if (priorityIndex !== -1) {
+      const priorityDebt = sortedDebts[priorityIndex];
+      
+      // Calculate total extra payment: this debt's extra + snowball + all other debts' extra payments
+      let totalExtra = (priorityDebt.extraPayment || 0) + snowballExtra;
+      
+      // Also add extra payments from other debts (all extra payments go to priority debt)
+      for (let i = 0; i < sortedDebts.length; i++) {
+        if (i !== priorityIndex) {
+          totalExtra += sortedDebts[i].extraPayment || 0;
+        }
+      }
+      
+      const extraPayment = Math.min(totalExtra, balances[priorityIndex]);
+      
+      if (extraPayment > 0) {
+        balances[priorityIndex] -= extraPayment;
+        monthlyPrincipal += extraPayment;
+        
+        // Check if paid off
+        if (balances[priorityIndex] <= 0.01) {
+          snowballExtra += priorityDebt.minimumPayment || 0;
+          balances[priorityIndex] = 0;
+        }
+      }
+    }
+    
+    const totalBalance = balances.reduce((sum, b) => sum + Math.max(0, b), 0);
+    
+    schedule.push({
+      month,
+      totalBalance: Math.round(totalBalance * 100) / 100,
+      interestPaid: Math.round(monthlyInterest * 100) / 100,
+      principalPaid: Math.round(monthlyPrincipal * 100) / 100,
+      balances: balances.map(b => Math.round(Math.max(0, b) * 100) / 100),
+    });
+    
+    // Stop if all debts are paid off
+    if (totalBalance <= 0) break;
   }
   
   return schedule;

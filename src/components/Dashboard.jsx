@@ -456,12 +456,14 @@ const Dashboard = () => {
                   />
                   <Tooltip content={<CustomTooltip />} />
                   <Area
-                    type="monotone"
+                    type="linear"
                     dataKey="balance"
                     name="Debt Balance"
                     stroke="#f43f5e"
                     strokeWidth={2}
                     fill="url(#debtGradient)"
+                    dot={{ r: 3, fill: '#f43f5e' }}
+                    activeDot={{ r: 5, fill: '#f43f5e', stroke: '#fff', strokeWidth: 2 }}
                   />
                 </AreaChart>
               </ResponsiveContainer>

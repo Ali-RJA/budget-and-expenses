@@ -173,36 +173,34 @@ export const calculateDebtPayoffSchedule = (debtItems, maxMonths = 360, mode = '
         }
       }
       
-      // Step 3: Apply extra payments + cascade to priority debt
-      const priorityIndex = balances.findIndex(b => b > 0);
-      if (priorityIndex !== -1) {
-        const priorityDebt = sortedDebts[priorityIndex];
-        
-        // Total extra = this debt's extra + cascade + all other debts' extra payments
-        let totalExtra = (priorityDebt.extraPayment || 0) + cascadeExtra;
-        
-        // Add extra payments from other (non-priority) debts
-        for (let i = 0; i < sortedDebts.length; i++) {
-          if (i !== priorityIndex && balances[i] > 0) {
-            // Only add extra from debts that aren't paid off yet
-          } else if (i !== priorityIndex && balances[i] <= 0) {
-            // This debt's extra is already in cascadeExtra
-          }
-          if (i !== priorityIndex && balances[i] > 0) {
-            totalExtra += sortedDebts[i].extraPayment || 0;
-          }
+      // Step 3: Calculate total extra available this month
+      let totalExtraAvailable = cascadeExtra;
+      for (let i = 0; i < sortedDebts.length; i++) {
+        if (balances[i] > 0) {
+          totalExtraAvailable += sortedDebts[i].extraPayment || 0;
         }
+      }
+      
+      // Step 4: Apply extra to priority debts in order (loop until extra depleted)
+      while (totalExtraAvailable > 0.01) {
+        const priorityIndex = balances.findIndex(b => b > 0);
+        if (priorityIndex === -1) break; // All debts paid off
         
-        const extraPayment = Math.min(totalExtra, balances[priorityIndex]);
+        const priorityDebt = sortedDebts[priorityIndex];
+        const extraPayment = Math.min(totalExtraAvailable, balances[priorityIndex]);
         
         if (extraPayment > 0) {
           balances[priorityIndex] -= extraPayment;
           monthlyPrincipal += extraPayment;
+          totalExtraAvailable -= extraPayment;
           
           if (balances[priorityIndex] <= 0.01) {
-            cascadeExtra += (priorityDebt.minimumPayment || 0) + (priorityDebt.extraPayment || 0);
+            // Debt paid off - add its min payment to cascade for next month
+            cascadeExtra += priorityDebt.minimumPayment || 0;
             balances[priorityIndex] = 0;
           }
+        } else {
+          break;
         }
       }
     }
